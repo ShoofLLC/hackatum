@@ -4,44 +4,56 @@ pragma solidity ^0.8.4;
 contract Bank {
     
     address public bank;
+    uint public daily_withdrawal_limit;
     
-    mapping (address => uint) public balances;
+    mapping (address => uint) balances;
+    mapping (address => uint) withdrawn_today;
+    mapping (address => uint) last_withdraw;
 
-    // Events allow clients to react to specific
-    // contract changes you declare
-    event Sent(address from, address to, uint amount);
+    event TransactionComplete(address to, uint amount);
 
-    // Constructor code is only run when the contract
-    // is created
-    constructor() {
+    constructor(uint32 withdrawal_limit) {
         bank = msg.sender;
+        daily_withdrawal_limit = withdrawal_limit;
     }
 
-    // Sends an amount of newly created coins to an address
-    // Can only be called by the contract creator
-    function withdraw(uint amount) public {
-        require(msg.sender != bank);
-        balances[bank] -= amount;
-        balances[msg.sender] += amount;
-    }
-
-    // Errors allow you to provide information about
-    // why an operation failed. They are returned
-    // to the caller of the function.
     error InsufficientBalance(uint requested, uint available);
 
-    // Sends an amount of existing coins
-    // from any caller to an address
     function withdraw(uint amount) public {
-        if (amount > balances[bank])
+        bool reset = false;
+        if (block.timestamp-last_withdraw[msg.sender] > 1 days){
+            reset=true;
+        }
+        if (amount > balances[bank] || withdrawn_today[msg.sender]+amount>daily_withdrawal_limit)
             revert InsufficientBalance({
                 requested: amount,
                 available: balances[bank]
             });
 
+        if(reset) withdrawn_today[msg.sender]=0;
+        last_withdraw[msg.sender]=block.timestamp;
+        withdrawn_today[msg.sender] += amount;
         balances[bank] -= amount;
         balances[msg.sender] += amount;
         
-        emit Sent(msg.sender, receiver, amount);
+        emit TransactionComplete(msg.sender, amount);
+    }
+    
+    
+    function check_balance() view public returns (uint){
+        return balances[msg.sender];
+    }
+    
+    function deposit(uint amount) public {
+        if (amount > balances[msg.sender])
+            revert InsufficientBalance({
+                requested: amount,
+                available: balances[msg.sender]
+            });
+
+        balances[bank] += amount;
+        balances[msg.sender] -= amount;
+        
+        emit TransactionComplete(msg.sender, amount);
     }
 }
