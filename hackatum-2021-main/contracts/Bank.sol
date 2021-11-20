@@ -17,6 +17,7 @@ contract PriceOracleTest is IPriceOracle {
             } else {
                 return virtualPrice[token];
         }
+    }
 }
 
 contract Bank is IBank {
