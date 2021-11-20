@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
-
+// SPDX-License-Identifier: MIT
 pragma solidity 0.7.0;
 
 interface IBank {
@@ -131,70 +130,170 @@ interface IBank {
     function getBalance(address token) view external returns (uint256);
 }
 
+
 abstract contract Bank is IBank {
+    address public hak_token;
+    address public eth_token;
+    address public price_oracle;
+    address public bank;
+    //uint256 public collateral;
     
-    address hak_token;
-    address eth_token=0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-    address price_oracle;
+    mapping (address => mapping (address => Account)) account;
+    mapping (address => uint256) borrowed; 
+    mapping (address => uint256) owedInterest; 
 
-    mapping (address => Account) eth_balances;
-    mapping (address => Account) hak_balances;
-    mapping (address => uint) last_withdraw;
+    //we need to have a mapping of accounts to collateral values
+    // map Account to the hak 
+    //mapping (address => uint256) collateral;
+    mapping (Account => uint256) collateral;
+    
+    constructor (address price_oracle_addr, address hak_token_addr) {
+        bank=msg.sender;
+        price_oracle = price_oracle_addr;
+        hak_token = hak_token_addr;
+        eth_token = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    }
+    
+    function valid_token(address token) internal view returns (bool) {
+        return token == eth_token || token == hak_token;
+    }
+    
+    function calc_interest(uint256 lastInterestBlock uint256 interestof, Account memory acc, uint256 cur_block_number, unint256 percent_interest) internal pure returns (uint256) {
+        uint256 interest_rate = (cur_block_number - lastInterestBlock) * percent_interest;
+        uint256 interest = interestof * interest_rate / 10000;
+        return interest;
+    }
+    
+    function deposit(address token, uint256 amount) payable external override returns (bool) {
+        require(amount > 0, revert("Amount should be > 0"));
+        require(valid_token(token), revert("Invalid token."));
+        
+        Account memory acc = account[msg.sender][token];
+        // kind of not sure about this
+        if (acc.lastInterestBlock == 0)
+            // set the initial interest block number
+            acc.lastInterestBlock = block.number;
+        
+        // deposit
+        acc.deposit += amount;
+        emit Deposit(msg.sender, token, amount);
+        
+        return true;
+    }
+    
+    function withdraw(address token, uint256 amount) external override returns (uint256) {
+        
+        require(valid_token(token), revert("Invalid token."));
+        require(amount >= 0, "Amount should be >= 0");
+        
+        Account memory acc = account[msg.sender][token];
 
-    event TransactionComplete(address to, uint amount);
+        if (token==hak_token) 
+            require(amount <= acc.deposit + collateral[acc], "You don't have enough deposits");
+        else
+            require(amount <= acc.deposit, "You don't have enough deposits");
+        
+        uint256 cur_block_number = block.number;
+        // calculate interest
+        acc.interest += calc_interest(acc.deposit, cur_block_number,3);
+        acc.lastInterestBlock = cur_block_number;
 
-    constructor(address oracle, address haktoken) {
-        price_oracle = oracle;
-        hak_token = haktoken;
+        if (amount == 0)
+            amount = acc.deposit;
+        
+        acc.deposit -= amount;
+        emit Withdraw(msg.sender, token, amount);
+        
+        uint256 return_amount = amount + acc.interest;
+        acc.interest = 0;
+        
+        return return_amount;
+    }
+    
+    // function borrow(address token, uint256 amount) external override returns (uint256) {
+    //     require(valid_token(token));
+        
+        
+        
+    // }
+    
+    function getBalance(address token) view external override returns (uint256) {
+        require(valid_token(token));
+        
+        return account[msg.sender][token].deposit;
     }
 
-    
-    function withdraw(address token, uint256 amount) external override returns (uint256)  {
-        checktoken(token);
+    function borrow(address token, uint256 amount) external override returns (uint256) 
+    {
+        require(amount>=0);
+        require(token==eth_token);
+        //make a requirement that the deposit in ETH is more than 150% of the collateral in HAK
+        // require(amount*convert_var*1.5 < HAK)
 
-        if(token==eth_token){
 
-            if (amount<eth_balances[msg.sender].deposit) 
-                eth_balances[msg.sender].deposit -= amount;
-            else revert("Insuffient funds.");
-            
-        } else if(token==hak_token) {
+        //acc[msg.sender][token].deposit;
+        //the value of hak has to be at least 150% of the borrowed amount in ETH(?)
+        //collateral[acc] = 
 
-            if (amount<hak_balances[msg.sender].deposit) 
-                hak_balances[msg.sender].deposit -= amount;
-            else revert("Insuffient funds.");
-
-        } else revert("Invalid token.");
-
-        emit Withdraw(msg.sender, token, amount);
+        borrowed[msg.sender] += amount;
+        emit Borrow(msg.sender, token, amount, 0);
         
         return amount;
     }
-    
-    function getBalance(address token) view external override returns (uint256){
-        checktoken(token);
-        if (token==eth_token)
-            return eth_balances[msg.sender].deposit;
-        return hak_balances[msg.sender].deposit;
-    }
-    
-/*    
 
-    
-    
-    function deposit(address token, uint256 amount) payable external override returns (bool){
-        checktoken(token);
-        if (amount > balances[msg.sender].deposit)
-            revert("You don't have enough funds.");
+    function repay(address token, uint256 _amount, Account memory acc, uint256 cur_block_number) payable external returns (uint256)
+    {
+        //is _amount the value that is due for the entire debt, or is it the value that is being paid back?
 
-        balances[bank].deposit += amount;
-        balances[msg.sender].deposit -= amount;
+        // this mapping allows us to get the total amount due on a debt from a token 
+        mapping (address => uint256) amount_due;
+
+        //Account memory acc, uint256 cur_block_number, unint256 percent_interest) internal pure returns (uint256
+        uint256 interest = calc_interest(token, cur_block_number, 5);
+        uint256 new_amount = amount + interest;
+
+        withdraw(token,_amount);
+        deposit(token,_amount);
+
         
-        emit Deposit(msg.sender, token, amount);
     }
-*/    
-    function checktoken(address token) view private {
-        require(token==eth_token||token==hak_token);
-    }
-}
 
+    function liquidate(address token, address account) payable external returns (bool) 
+    {
+        //assuming that the condition of liquidation is checked outside the function - the assumption is made because there is no input variable for the collateral 
+        // amount to repay = a
+        repay();
+        account.withdraw(token, 0);
+        
+        
+        return true;
+
+    }
+    
+    function getCollateralRatio(address token, address account) view external returns (uint256){
+        require(token == hak_token, revert("Only HAK token is accepted."));
+
+        Account memory acc = account[msg.sender][token];
+        if(borrowed[msg.sender]==0){
+            return type(uint256).max;
+        }
+
+        // TODO: convert ETH to HAK with price oracle !!!
+        collateral = (acc.deposit + acc.interest) * 10000 / (borrowed[acc] + owedInterest[acc]);
+        return collateral;
+    }
+
+
+    
+}
+    
+
+
+
+//    // Event emitted when a user borrows funds
+//    event Borrow(
+//        address indexed _from, // account who borrowed the funds
+//        address indexed token, // token that was borrowed
+//        uint256 amount, // amount of token that was borrowed
+//        uint256 newCollateralRatio // collateral ratio for the account, after the borrow
+//    );
