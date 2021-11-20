@@ -133,50 +133,57 @@ interface IBank {
 
 abstract contract Bank is IBank {
     
-    address public bank;
-    uint public daily_withdrawal_limit;
-    
-    mapping (address => Account) balances;
-    mapping (address => uint) withdrawn_today;
+    address hak_token;
+    address eth_token=0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address price_oracle;
+
+    mapping (address => Account) eth_balances;
+    mapping (address => Account) hak_balances;
     mapping (address => uint) last_withdraw;
 
     event TransactionComplete(address to, uint amount);
 
-    constructor(address price_oracle, address hak_token) {
-        bank = msg.sender;
-        daily_withdrawal_limit = withdrawal_limit;
+    constructor(address oracle, address haktoken) {
+        price_oracle = oracle;
+        hak_token = haktoken;
     }
 
     
     function withdraw(address token, uint256 amount) external override returns (uint256)  {
-        
-        bool reset = false;
-        
-        if (block.timestamp-last_withdraw[msg.sender] > 1 days){
-            reset=true;
-        }
-        
-        if (amount > balances[bank].deposit || withdrawn_today[msg.sender]+amount>daily_withdrawal_limit)
-            revert("Not enough funds or daily limit exceeded.");
+        checktoken(token);
 
-        if(reset) withdrawn_today[msg.sender]=0;
-        last_withdraw[msg.sender]=block.timestamp;
-        withdrawn_today[msg.sender] += amount;
-        balances[bank].deposit -= amount;
-        balances[msg.sender].deposit += amount;
-        
+        if(token==eth_token){
+
+            if (amount<eth_balances[msg.sender].deposit) 
+                eth_balances[msg.sender].deposit -= amount;
+            else revert("Insuffient funds.");
+            
+        } else if(token==hak_token) {
+
+            if (amount<hak_balances[msg.sender].deposit) 
+                hak_balances[msg.sender].deposit -= amount;
+            else revert("Insuffient funds.");
+
+        } else revert("Invalid token.");
+
         emit Withdraw(msg.sender, token, amount);
         
         return amount;
     }
     
-    
     function getBalance(address token) view external override returns (uint256){
-        return balances[msg.sender].deposit;
+        checktoken(token);
+        if (token==eth_token)
+            return eth_balances[msg.sender].deposit;
+        return hak_balances[msg.sender].deposit;
     }
+    
+/*    
+
     
     
     function deposit(address token, uint256 amount) payable external override returns (bool){
+        checktoken(token);
         if (amount > balances[msg.sender].deposit)
             revert("You don't have enough funds.");
 
@@ -184,6 +191,10 @@ abstract contract Bank is IBank {
         balances[msg.sender].deposit -= amount;
         
         emit Deposit(msg.sender, token, amount);
+    }
+*/    
+    function checktoken(address token) view private {
+        require(token==eth_token||token==hak_token);
     }
 }
 
