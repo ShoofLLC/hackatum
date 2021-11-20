@@ -142,17 +142,20 @@ abstract contract Bank is IBank {
 
     event TransactionComplete(address to, uint amount);
 
-    constructor(uint32 withdrawal_limit) {
+    constructor(address price_oracle, address hak_token) {
         bank = msg.sender;
         daily_withdrawal_limit = withdrawal_limit;
     }
 
     
     function withdraw(address token, uint256 amount) external override returns (uint256)  {
+        
         bool reset = false;
+        
         if (block.timestamp-last_withdraw[msg.sender] > 1 days){
             reset=true;
         }
+        
         if (amount > balances[bank].deposit || withdrawn_today[msg.sender]+amount>daily_withdrawal_limit)
             revert("Not enough funds or daily limit exceeded.");
 
@@ -163,22 +166,24 @@ abstract contract Bank is IBank {
         balances[msg.sender].deposit += amount;
         
         emit Withdraw(msg.sender, token, amount);
+        
         return amount;
     }
     
     
-    function check_balance() view public returns (uint){
+    function getBalance(address token) view external override returns (uint256){
         return balances[msg.sender].deposit;
     }
     
-    function deposit(uint amount) public {
+    
+    function deposit(address token, uint256 amount) payable external override returns (bool){
         if (amount > balances[msg.sender].deposit)
             revert("You don't have enough funds.");
 
         balances[bank].deposit += amount;
         balances[msg.sender].deposit -= amount;
         
-        emit TransactionComplete(msg.sender, amount);
+        emit Deposit(msg.sender, token, amount);
     }
 }
 
